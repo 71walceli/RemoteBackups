@@ -1,0 +1,16 @@
+{
+  "andresgarzon-actor.com": {
+    "ftpCredentials": {
+      "host": "mocha3030.mochahost.com",
+      "user": "webzipec",
+      "password": "Labsolvictor2021*",
+      "directory": "/new.andresgarzon-actor.com"
+    },
+    "mysqlDbCredentials": {
+      "host": "mocha3030.mochahost.com",
+      "user": "webzipec",
+      "password": "Labsolvictor2021*",
+      "dbName": "webzipec_agarzon"
+    }
+  }
+}
