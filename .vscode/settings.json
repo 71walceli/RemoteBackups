@@ -1,0 +1,8 @@
+{
+    "files.exclude": {
+        "ftp": true
+    },
+    "files.watcherExclude": {
+        "ftp": true
+    }
+}
