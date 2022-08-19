@@ -112,33 +112,33 @@ def archivar(directorio, archivo_zip):
   print("Archivado: Iniciando")
   resultado_comando = os.system(f"7z a -mx=9 {archivo_zip} {directorio}")
   if resultado_comando == 0:
-    shutil.rmtree(os.path.join(directorio, NOMBRE_ARCHIVO_BASE_DATOS))
-    shutil.rmtree(os.path.join(directorio, NOMBRE_CARPETA_ARCHIVOS))
+    shutil.rmtree(directorio)
   print("Archivado: Terminando")
 
+
 if __name__ == "__main__":
-  carpeta_copias_segutidad = sys.argv[1] if sys.argv[1] else "./.backups"
+  carpeta_copias_seguridad = sys.argv[1] if sys.argv[1] else "./.backups"
   credenciales_hosting = sys.argv[2] if sys.argv[2] else "./websitesData.json"
 
   with open(credenciales_hosting) as jsonData:
     website_backend_credentials = json.loads(jsonData.read())
-  for domain, credentials in website_backend_credentials.items():
+  for dominio, credentials in website_backend_credentials.items():
     hilo_archivos = Thread(
       target=lambda: download_files(credentials["ftpCredentials"], 
-        os.path.join(carpeta_copias_segutidad, domain, NOMBRE_CARPETA_ARCHIVOS)
+        os.path.join(carpeta_copias_seguridad, dominio, NOMBRE_CARPETA_ARCHIVOS)
       ))
     hilo_base_datos = Thread(
       target=lambda: download_database(credentials["dbCredentials"], 
-        os.path.join(carpeta_copias_segutidad, domain, NOMBRE_ARCHIVO_BASE_DATOS)
+        os.path.join(carpeta_copias_seguridad, dominio, NOMBRE_ARCHIVO_BASE_DATOS)
       ))
     
-    print(f"DOMINIO {domain}")
+    print(f"DOMINIO {dominio}")
     while True:
       try:
-        os.makedirs(os.path.join(carpeta_copias_segutidad, domain))
+        os.makedirs(os.path.join(carpeta_copias_seguridad, dominio))
         break
       except FileExistsError:
-        continue
+        break
       except:
         raise
 
@@ -148,7 +148,10 @@ if __name__ == "__main__":
     hilo_archivos.join()
     hilo_base_datos.join()
     
-    fecha = datetime.now().strftime("%Y%m%d_%H%M%S")
-    archivar(os.path.join(carpeta_copias_segutidad, f"{fecha}_{domain}.zip"))
-    print(f"DOMINIO {domain} copiado correctamente")
+    fecha_hora = datetime.now().strftime("%Y%m%d_%H%M%S")
+    archivar(
+      os.path.join(carpeta_copias_seguridad, dominio),
+      os.path.join(carpeta_copias_seguridad, f"{fecha_hora} {dominio}.zip"),
+    )
+    print(f"DOMINIO {dominio} copiado correctamente")
 
