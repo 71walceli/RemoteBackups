@@ -1,13 +1,18 @@
 import ftplib
 import json
 from functools import reduce
-import os, sys, os.path, shutil, operator
+import os, os.path, shutil, operator
+import sys
+from threading import Thread
+from datetime import datetime
 
 
-LOCAL_FTP_DIRECTORY = "./ftp"
+NOMBRE_CARPETA_ARCHIVOS = "Archivos"
+NOMBRE_ARCHIVO_BASE_DATOS = "BaseDatos.sql"
 
 
 class FtpClient(ftplib.FTP):
+  """Just a wrapper for `ftplib.FTP` in order to add functionality"""
   def __init__(self, host='', user='', passwd='', acct='', timeout=None, source_address=None, 
     *, encoding='utf-8'
   ) -> None:
@@ -18,6 +23,7 @@ class FtpClient(ftplib.FTP):
     self.path = self.pwd()
 
   def cwd(self, dirname: str) -> str:
+    self.path = dirname
     return super().cwd(dirname)
 
   def reconnect(self):
@@ -31,6 +37,7 @@ class FtpClient(ftplib.FTP):
     """List all files and folders in specified directory."""
     files, dirs = [], []
     def classify(listing: str):
+      """Clasifies each of the directory entries either as file or as folder."""
       listing = listing.split(maxsplit=8)
       listing_type = listing[0][0]
       node = listing[8]
@@ -82,28 +89,66 @@ class FtpClient(ftplib.FTP):
     return reduce(operator.iand, res, True)
 
 
-def download_database(ftp_credentials, local_dir):
-  pass
+def download_database(db_credentials, local_file):
+  db_user = db_credentials["user"]
+  db_host = db_credentials["host"]
+  db_password = db_credentials["password"]
+  db_name = db_credentials["dbName"]
+  print("Base de Datos: Iniciando")
+  os.system(f"mysqldump --user={db_user} --host={db_host} --password={db_password} --databases {db_name} "
+    +f"--column-statistics=0 > {local_file}")
+  print("Base de Datos: Terminando")
 
 
 def download_files(ftp_credentials, local_dir):
+  print("Descarga Archivos: Iniciando")
   with FtpClient(ftp_credentials["host"], ftp_credentials["user"], ftp_credentials["password"]) \
   as ftp:
     ftp.cwd(ftp_credentials["directory"])
-    print(f"Downloading directory for {domain} into {local_dir}")
     ftp.cloneFolder(ftp_credentials["directory"], local_dir)
+  print("Descarga Archivos: Terminando")
 
-
-with open("./websitesData.json") as jsonData:
-  website_backend_credentials = json.loads(jsonData.read())
+def archivar(directorio, archivo_zip):
+  print("Archivado: Iniciando")
+  resultado_comando = os.system(f"7z a -mx=9 {archivo_zip} {directorio}")
+  if resultado_comando == 0:
+    shutil.rmtree(os.path.join(directorio, NOMBRE_ARCHIVO_BASE_DATOS))
+    shutil.rmtree(os.path.join(directorio, NOMBRE_CARPETA_ARCHIVOS))
+  print("Archivado: Terminando")
 
 if __name__ == "__main__":
-  #print(websiteBackendCredentials)
-  #print(type(websiteBackendCredentials))
-  for domain, credentials in website_backend_credentials.items():
-    ftp_credentials = credentials["ftpCredentials"]
-    mysql_credentials = credentials["mysqlDbCredentials"]
-    #download_database(mysql_credentials, os.path.join(LOCAL_FTP_DIRECTORY, domain))
-    download_files(ftp_credentials, os.path.join(LOCAL_FTP_DIRECTORY, domain))
+  carpeta_copias_segutidad = sys.argv[1] if sys.argv[1] else "./.backups"
+  credenciales_hosting = sys.argv[2] if sys.argv[2] else "./websitesData.json"
 
+  with open(credenciales_hosting) as jsonData:
+    website_backend_credentials = json.loads(jsonData.read())
+  for domain, credentials in website_backend_credentials.items():
+    hilo_archivos = Thread(
+      target=lambda: download_files(credentials["ftpCredentials"], 
+        os.path.join(carpeta_copias_segutidad, domain, NOMBRE_CARPETA_ARCHIVOS)
+      ))
+    hilo_base_datos = Thread(
+      target=lambda: download_database(credentials["dbCredentials"], 
+        os.path.join(carpeta_copias_segutidad, domain, NOMBRE_ARCHIVO_BASE_DATOS)
+      ))
+    
+    print(f"DOMINIO {domain}")
+    while True:
+      try:
+        os.makedirs(os.path.join(carpeta_copias_segutidad, domain))
+        break
+      except FileExistsError:
+        continue
+      except:
+        raise
+
+    hilo_archivos.start()
+    hilo_base_datos.start()
+
+    hilo_archivos.join()
+    hilo_base_datos.join()
+    
+    fecha = datetime.now().strftime("%Y%m%d_%H%M%S")
+    archivar(os.path.join(carpeta_copias_segutidad, f"{fecha}_{domain}.zip"))
+    print(f"DOMINIO {domain} copiado correctamente")
 
