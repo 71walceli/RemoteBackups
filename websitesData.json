@@ -6,10 +6,10 @@
       "password": "Labsolvictor2021*",
       "directory": "/new.andresgarzon-actor.com"
     },
-    "mysqlDbCredentials": {
-      "host": "mocha3030.mochahost.com",
-      "user": "webzipec",
-      "password": "Labsolvictor2021*",
+    "dbCredentials": {
+      "host": "mysql1007.mochahost.com",
+      "user": "webzipec_agarzon",
+      "password": "]7[7iSYYp2",
       "dbName": "webzipec_agarzon"
     }
   }
