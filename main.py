@@ -1,4 +1,5 @@
 import json
+import yaml
 import os, os.path, shutil
 import subprocess
 from threading import Thread
@@ -29,7 +30,6 @@ def download_database(db_credentials, local_file):
       subprocess.run(
         command,
         stdout=download_file,
-        #stderr=subprocess.PIPE,  # Redirect stderr if needed
         check=True,  # Raise an error if the command fails
         text=False  # Ensure binary mode for stdout
       )
@@ -53,20 +53,18 @@ def download_files(credentials, local_dir):
       password=credentials["password"],
       auth_timeout=10,
     )
-    #ssh_conn.exec_command(f"cd {credentials['directory']}; pwd")
-    #_,stdout,_ = ssh_conn.exec_command(f"cd {credentials['directory']}; pwd")
-    #_,stdout,_ = ssh_conn.exec_command(f"cd {credentials['directory']}; pwd")
-    #print(stdout.readline())
-    #ssh_conn.exec_command(f"tar cvf {backup_file} .")
-    #_,stdout,_ = ssh_conn.exec_command(f"cat {backup_file} .")
     remote_file = f"{credentials['directory']}/{backup_file}"
-    remote_fifo = f"{credentials['directory']}/{backup_file}.fifo"
     
-    ssh_conn.exec_command(f"mkfifo {remote_fifo}")
-    ssh_conn.exec_command(f"tar cvf - {credentials['directory']}/* {credentials['directory']}/.* > {remote_file}")
-    #ssh_conn.exec_command(f"tar cvf - $(ls {credentials['directory']}) > {remote_file}")
-    ssh_conn.exec_command(f"cat {remote_file} > {remote_fifo}")
-    _,stdout,_ = ssh_conn.exec_command(f"cat {remote_fifo}")
+    _,stdout,_ = ssh_conn.exec_command(
+      f"tar cvf - $( find {credentials['directory']} -mindepth 1 -maxdepth 1 ) > {remote_file}"
+    )
+    print(
+      f"tar cvf - $( find {credentials['directory']} -mindepth 1 -maxdepth 1 ) > {remote_file}"
+    )
+    stdout.channel.recv_exit_status()
+    #ssh_conn.exec_command(f"cat {remote_file} > {remote_fifo}")
+    _,stdout,_ = ssh_conn.exec_command(f"cat {remote_file}")
+    print(f"cat {remote_file}")
     with stdout:
       with open(f"{local_dir}/{backup_file}", "wb") as download:
         chunk_size = 4096  # Adjust the chunk size as needed
@@ -75,8 +73,10 @@ def download_files(credentials, local_dir):
           if not chunk:
             break  # Break the loop when there's no more data
           download.write(chunk)
+    #ssh_conn.exec_command(f"rm {remote_file}")
+    #print(f"rm {remote_file}")
     ssh_conn.exec_command(f"rm {remote_file}")
-    ssh_conn.exec_command(f"rm {remote_fifo}")
+    print(f"rm {remote_file}")
     ssh_conn.close()
   elif credentials["connectionType"] == "ftp":
     with FtpClient(credentials["host"], credentials["user"], credentials["password"]) \
@@ -88,7 +88,7 @@ def download_files(credentials, local_dir):
 
 def archivar(directorio, archivo_zip):
   print("Archivado: Iniciando")
-  resultado_comando = os.system(f"7z a -mx=9 {archivo_zip} {directorio}")
+  resultado_comando = os.system(f"7z a -mx=9 -mmt=2 {archivo_zip} {directorio}")
   if resultado_comando == 0:
     shutil.rmtree(directorio)
   print("Archivado: Terminando")
@@ -103,19 +103,23 @@ def parse_arguments():
 
 
 def delete_local_folder(backup_folder_domain):
-    try:
-      shutil.rmtree(backup_folder_domain)
-    except FileNotFoundError:
-      pass
+  try:
+    shutil.rmtree(backup_folder_domain)
+  except FileNotFoundError:
+    pass
 
 if __name__ == "__main__":
   args = parse_arguments()
   backup_folder = args.backup_folder
-  hosting_creds = args.hosting_creds
+  hosting_creds_path = args.hosting_creds
 
   # TODO Load YAML as well
-  with open(hosting_creds) as jsonData:
-    website_backend_credentials = json.loads(jsonData.read())
+  with open(hosting_creds_path) as jsonData:
+    file_extension = hosting_creds_path.split(".")[-1].lower()
+    if file_extension == "json":
+      website_backend_credentials = json.loads(jsonData.read())
+    elif file_extension in ("yaml", "yml"):
+      website_backend_credentials = yaml.load(jsonData.read())
   # TODO For every spec, create separate thread.
   for dominio, credentials in website_backend_credentials.items():
     backup_folder_domain = os.path.join(backup_folder, dominio)
