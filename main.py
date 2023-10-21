@@ -153,7 +153,7 @@ if __name__ == "__main__":
     print(f"DOMINIO {dominio}")
     while True:
       try:
-        os.makedirs(os.path.join(backup_folder, dominio))
+        os.makedirs(backup_folder_domain)
         break
       except FileExistsError:
         break
