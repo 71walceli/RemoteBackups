@@ -5,7 +5,8 @@ import subprocess
 from threading import Thread
 from datetime import datetime
 from argparse import ArgumentParser
-from paramiko import SSHClient
+import paramiko
+
 
 from FtpClient import FtpClient
 
@@ -45,26 +46,20 @@ def download_files(credentials, local_dir):
   # TODO Move SSH logic to other module file
   if credentials["connectionType"] == "ssh":
     backup_file = f"{datetime.now().isoformat().replace(':', '-')}.tar"
-    ssh_conn = SSHClient()
-    ssh_conn.load_system_host_keys()
+
+    ssh_conn = paramiko.SSHClient() 
+    ssh_conn.set_missing_host_key_policy(paramiko.AutoAddPolicy())
     ssh_conn.connect(
       hostname=credentials["host"], 
       username=credentials["user"],
       password=credentials["password"],
-      auth_timeout=10,
     )
     remote_file = f"{credentials['directory']}/{backup_file}"
     
-    _,stdout,_ = ssh_conn.exec_command(
-      f"tar cvf - $( find {credentials['directory']} -mindepth 1 -maxdepth 1 ) > {remote_file}"
-    )
-    print(
-      f"tar cvf - $( find {credentials['directory']} -mindepth 1 -maxdepth 1 ) > {remote_file}"
-    )
-    stdout.channel.recv_exit_status()
-    #ssh_conn.exec_command(f"cat {remote_file} > {remote_fifo}")
-    _,stdout,_ = ssh_conn.exec_command(f"cat {remote_file}")
-    print(f"cat {remote_file}")
+    command = f"tar c $( find {credentials['directory']} -mindepth 1 -maxdepth 1 )"
+    result = ssh_conn.exec_command(command)
+    print(command)
+    _,stdout,_ = result
     with stdout:
       with open(f"{local_dir}/{backup_file}", "wb") as download:
         chunk_size = 4096  # Adjust the chunk size as needed
@@ -73,10 +68,22 @@ def download_files(credentials, local_dir):
           if not chunk:
             break  # Break the loop when there's no more data
           download.write(chunk)
-    #ssh_conn.exec_command(f"rm {remote_file}")
-    #print(f"rm {remote_file}")
     ssh_conn.exec_command(f"rm {remote_file}")
     print(f"rm {remote_file}")
+    
+    command = f"find {credentials['directory']} -type f -print0 | xargs -0 md5sum"
+    result = ssh_conn.exec_command(command)
+    print(command)
+    _,stdout,_ = result
+    backup_file_md5 = f"{backup_file}.md5"
+    with stdout:
+      with open(f"{local_dir}/{backup_file_md5}", "wb") as download:
+        chunk_size = 4096  # Adjust the chunk size as needed
+        while True:
+          chunk = stdout.read(chunk_size)
+          if not chunk:
+            break  # Break the loop when there's no more data
+          download.write(chunk)
     ssh_conn.close()
   elif credentials["connectionType"] == "ftp":
     with FtpClient(credentials["host"], credentials["user"], credentials["password"]) \
@@ -88,9 +95,17 @@ def download_files(credentials, local_dir):
 
 def archivar(directorio, archivo_zip):
   print("Archivado: Iniciando")
-  resultado_comando = os.system(f"7z a -mx=9 -mmt=2 {archivo_zip} {directorio}")
-  if resultado_comando == 0:
-    shutil.rmtree(directorio)
+  command = ["7z", "a", "-v3996m", "-mx=9", "-mmt=2", archivo_zip, directorio,]
+  # Use subprocess to run the command and capture the stdout
+  try:
+    subprocess.run(
+      command,
+      check=True,  # Raise an error if the command fails
+      text=False  # Ensure binary mode for stdout
+    )
+    delete_local_folder(directorio)
+  except subprocess.CalledProcessError as e:
+    print("Couldn't create archive.")
   print("Archivado: Terminando")
 
 def parse_arguments():
@@ -98,9 +113,10 @@ def parse_arguments():
     description="Backup script for remote to local backups, including remote databases"
   )
   parser.add_argument("--backup_folder", default="./.backups", help="Backup folder path")
-  parser.add_argument("--hosting_creds", default="./websitesData.json", help="Hosting credentials file path")
+  parser.add_argument("--hosting_creds", default="./websitesData.yaml", 
+    help="Hosting credentials file path"
+  )
   return parser.parse_args()
-
 
 def delete_local_folder(backup_folder_domain):
   try:
@@ -119,7 +135,7 @@ if __name__ == "__main__":
     if file_extension == "json":
       website_backend_credentials = json.loads(jsonData.read())
     elif file_extension in ("yaml", "yml"):
-      website_backend_credentials = yaml.load(jsonData.read())
+      website_backend_credentials = yaml.safe_load(jsonData.read())
   # TODO For every spec, create separate thread.
   for dominio, credentials in website_backend_credentials.items():
     backup_folder_domain = os.path.join(backup_folder, dominio)
@@ -130,7 +146,7 @@ if __name__ == "__main__":
       ))
     hilo_base_datos = Thread(
       target=lambda: download_database(credentials["dbCredentials"], 
-        os.path.join(backup_folder_domain, NOMBRE_ARCHIVO_BASE_DATOS)
+        os.path.join(backup_folder_domain, f"{credentials['dbCredentials']['dbName']}.sql")
       ))
     
     print(f"DOMINIO {dominio}")
@@ -144,21 +160,21 @@ if __name__ == "__main__":
         raise
 
     hilo_archivos.start()
-    hilo_base_datos.start()
+    if "dbCredentials" in credentials:
+      hilo_base_datos.start()
 
     hilo_archivos.join()
-    hilo_base_datos.join()
+    if "dbCredentials" in credentials:
+      hilo_base_datos.join()
     
-    fecha_hora = datetime.now().strftime("%Y%m%d_%H%M%S")
     hilo_archivado = Thread(
       target=lambda: archivar(
-        os.path.join(backup_folder, dominio),
-        os.path.join(backup_folder, f"{fecha_hora} {dominio}.zip"),
+        backup_folder_domain,
+        os.path.join(backup_folder, f"{fecha_hora} {dominio}.7z"),
       )
     )
     hilo_archivado.start()
     hilo_archivado.join()
     
-    delete_local_folder(backup_folder_domain)
     print(f"DOMINIO {dominio} copiado correctamente")
 
