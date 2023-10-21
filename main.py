@@ -138,7 +138,8 @@ if __name__ == "__main__":
       website_backend_credentials = yaml.safe_load(jsonData.read())
   # TODO For every spec, create separate thread.
   for dominio, credentials in website_backend_credentials.items():
-    backup_folder_domain = os.path.join(backup_folder, dominio)
+    fecha_hora = datetime.now().strftime("%Y%m%d_%H%M%S")
+    backup_folder_domain = os.path.join(backup_folder, f"{fecha_hora} {dominio}")
     delete_local_folder(backup_folder_domain)
     hilo_archivos = Thread(
       target=lambda: download_files(credentials["credentials"], 
