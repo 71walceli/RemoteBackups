@@ -129,7 +129,6 @@ if __name__ == "__main__":
   backup_folder = args.backup_folder
   hosting_creds_path = args.hosting_creds
 
-  # TODO Load YAML as well
   with open(hosting_creds_path) as jsonData:
     file_extension = hosting_creds_path.split(".")[-1].lower()
     if file_extension == "json":
