@@ -2,7 +2,7 @@ import json
 import yaml
 import os, os.path, shutil
 import subprocess
-from threading import Thread
+from threading import Thread, Semaphore
 from datetime import datetime
 from argparse import ArgumentParser
 import paramiko
@@ -108,6 +108,11 @@ def archivar(directorio, archivo_zip):
     print("Couldn't create archive.")
   print("Archivado: Terminando")
 
+def run_in_semaphore(semaphore: Semaphore, thread: Thread):
+  with semaphore:
+    thread.start()
+    thread.join()
+
 def parse_arguments():
   parser = ArgumentParser(
     description="Backup script for remote to local backups, including remote databases"
@@ -124,10 +129,69 @@ def delete_local_folder(backup_folder_domain):
   except FileNotFoundError:
     pass
 
+def backup_website(credentials, backup_folder, dominio, _, backup_archive):
+  hilo_archivos = Thread(
+    target=lambda: download_files(
+      credentials["credentials"], 
+      backup_folder
+    )
+  )
+  hilo_base_datos = Thread(
+    target=lambda: download_database(
+      credentials["dbCredentials"], 
+      os.path.join(backup_folder, f"{credentials['dbCredentials']['dbName']}.sql")
+    )
+  )
+
+  print(f"DOMINIO {dominio}")
+  while True: # TODO WHY this loop? It iterates once.
+    try:
+      os.makedirs(backup_folder)
+      break
+    except FileExistsError:
+      break
+    except:
+      raise
+
+  hilo_archivos.start()
+  if "dbCredentials" in credentials:
+    hilo_base_datos.start()
+
+  hilo_archivos.join()
+  if "dbCredentials" in credentials:
+    hilo_base_datos.join()
+  
+  hilo_archivado = Thread(
+    target=lambda: archivar(
+      backup_folder,
+      backup_archive
+    )
+  )
+  run_in_semaphore(archiving_threads, hilo_archivado)
+  #hilo_archivado.join()
+  
+  #print(f"DOMINIO {dominio} copiado correctamente")
+
+def batch_backup(credentials, backup_folder):
+  # TODO For every spec, create separate thread.
+  for dominio, credentials in credentials.items():
+    fecha_hora = datetime.now().strftime("%Y%m%d_%H%M%S")
+    backup_folder_domain = os.path.join(backup_folder, f"{fecha_hora} {dominio}")
+    backup_archive_path = os.path.join(backup_folder, f"{fecha_hora} {dominio}.7z")
+    
+    delete_local_folder(backup_folder_domain)
+    backup_website(credentials, backup_folder_domain, dominio, fecha_hora, backup_archive_path)
+
+
 if __name__ == "__main__":
   args = parse_arguments()
   backup_folder = args.backup_folder
   hosting_creds_path = args.hosting_creds
+
+  archiving_threads = Semaphore(os.environ["MAX_ARCHIVE_THREADS"] 
+    if os.environ.get("MAX_ARCHIVE_THREADS") 
+    else 2
+  )
 
   with open(hosting_creds_path) as jsonData:
     file_extension = hosting_creds_path.split(".")[-1].lower()
@@ -135,46 +199,4 @@ if __name__ == "__main__":
       website_backend_credentials = json.loads(jsonData.read())
     elif file_extension in ("yaml", "yml"):
       website_backend_credentials = yaml.safe_load(jsonData.read())
-  # TODO For every spec, create separate thread.
-  for dominio, credentials in website_backend_credentials.items():
-    fecha_hora = datetime.now().strftime("%Y%m%d_%H%M%S")
-    backup_folder_domain = os.path.join(backup_folder, f"{fecha_hora} {dominio}")
-    delete_local_folder(backup_folder_domain)
-    hilo_archivos = Thread(
-      target=lambda: download_files(credentials["credentials"], 
-        backup_folder_domain
-      ))
-    hilo_base_datos = Thread(
-      target=lambda: download_database(credentials["dbCredentials"], 
-        os.path.join(backup_folder_domain, f"{credentials['dbCredentials']['dbName']}.sql")
-      ))
-    
-    print(f"DOMINIO {dominio}")
-    while True:
-      try:
-        os.makedirs(backup_folder_domain)
-        break
-      except FileExistsError:
-        break
-      except:
-        raise
-
-    hilo_archivos.start()
-    if "dbCredentials" in credentials:
-      hilo_base_datos.start()
-
-    hilo_archivos.join()
-    if "dbCredentials" in credentials:
-      hilo_base_datos.join()
-    
-    hilo_archivado = Thread(
-      target=lambda: archivar(
-        backup_folder_domain,
-        os.path.join(backup_folder, f"{fecha_hora} {dominio}.7z"),
-      )
-    )
-    hilo_archivado.start()
-    hilo_archivado.join()
-    
-    print(f"DOMINIO {dominio} copiado correctamente")
-
+  batch_backup(website_backend_credentials, backup_folder)
