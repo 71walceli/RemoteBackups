@@ -7,12 +7,7 @@ from datetime import datetime
 from argparse import ArgumentParser
 import paramiko
 
-
 from FtpClient import FtpClient
-
-
-NOMBRE_CARPETA_ARCHIVOS = "Archivos"
-NOMBRE_ARCHIVO_BASE_DATOS = "BaseDatos.sql"
 
 
 def download_database(db_credentials, local_file):
@@ -161,15 +156,8 @@ def backup_website(credentials, backup_folder, dominio, _, backup_archive):
   if "dbCredentials" in credentials:
     hilo_base_datos.join()
   
-  hilo_archivado = Thread(
-    target=lambda: archivar(
-      backup_folder,
-      backup_archive
-    )
-  )
-  run_in_semaphore(archiving_threads, hilo_archivado)
-  #hilo_archivado.join()
-  
+  hilo_archivado = Thread( target=lambda: archivar(backup_folder, backup_archive) )
+  run_in_semaphore(archiving_thread_pool, Thread( target=lambda: hilo_archivado.start() ))
   #print(f"DOMINIO {dominio} copiado correctamente")
 
 def batch_backup(credentials, backup_folder):
@@ -188,10 +176,7 @@ if __name__ == "__main__":
   backup_folder = args.backup_folder
   hosting_creds_path = args.hosting_creds
 
-  archiving_threads = Semaphore(os.environ["MAX_ARCHIVE_THREADS"] 
-    if os.environ.get("MAX_ARCHIVE_THREADS") 
-    else 2
-  )
+  archiving_thread_pool = Semaphore( os.environ.get("MAX_ARCHIVE_THREADS", 2) )
 
   with open(hosting_creds_path) as jsonData:
     file_extension = hosting_creds_path.split(".")[-1].lower()
