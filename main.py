@@ -48,7 +48,6 @@ def download_database_ssh(credential, local_file):
   ]
   command = " ".join([command[0], *("'"+r"\'".join(arg.split("'"))+"'" for arg in command[1:])])
   result = ssh_conn.exec_command(command)
-  print(command)
   _,stdout,_ = result
   with stdout:
     with open(local_file, "wb") as download:
@@ -76,7 +75,6 @@ def download_files(credential, local_dir):
     
     command = f"tar c $( find {credential['directory']} -mindepth 1 -maxdepth 1 ) | gzip -1"
     result = ssh_conn.exec_command(command)
-    print(command)
     _,stdout,_ = result
     with stdout:
       with open(f"{local_dir}/{backup_file}", "wb") as download:
@@ -91,7 +89,6 @@ def download_files(credential, local_dir):
     
     command = f"find {credential['directory']} -type f -print0 | xargs -0 md5sum"
     result = ssh_conn.exec_command(command)
-    print(command)
     _,stdout,_ = result
     backup_file_md5 = f"{backup_file}.md5"
     with stdout:
@@ -159,28 +156,32 @@ def delete_local_folder(backup_folder_domain):
 def backup_website(credentials, backup_folder, dominio, _, backup_archive):
   threads = []
   for credential in credentials:
+    # TODO Identify why we need intermediate values
     match credential["type"]:
       # TODO Split FTP and SSH code.
       case "ftpFolder" | "sshFolder":
+        fileCredentials = credential
         threads.append(Thread(
-          target=lambda: download_files(credential, 
-            f'{backup_folder}{credential["directory"].replace("/", "@")}'
+          target=lambda: download_files(fileCredentials, 
+            os.path.join(backup_folder, fileCredentials["directory"].replace("/", "@"))
           )
         ))
         #break
       case "mysqlDbOverSsh":
+        mysqlDbOverSshCredential = credential
         threads.append(Thread(
           target=lambda: download_database_ssh(
-            credential, 
-            os.path.join(backup_folder, f"{credential['dbName']}.sql")
+            mysqlDbOverSshCredential, 
+            os.path.join(backup_folder, f"{mysqlDbOverSshCredential['dbName']}.sql")
           )
         ))
         #break
       case "mysqlDb":
+        mysqlDbCredential = credential
         threads.append(Thread(
           target=lambda: download_database(
-            credential, 
-            os.path.join(backup_folder, f"{credential['dbName']}.sql")
+            mysqlDbCredential, 
+            os.path.join(backup_folder, f"{mysqlDbCredential['dbName']}.sql")
           )
         ))
         #break
