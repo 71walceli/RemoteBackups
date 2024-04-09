@@ -35,23 +35,46 @@ def download_database(db_credentials, local_file):
       pass
   print("Base de Datos: Terminando")
 
-def download_files(credentials, local_dir):
+def download_database_ssh(credential, local_file):
+  print("Base de Datos: Iniciando")
+  
+  ssh_conn = ssh_connect(credential)
+  command = [
+    'mysqldump',
+    '--user',     credential["dbUser"],
+    '--host',     credential.get("host", "localhost"),
+    f'--password={credential["password"]}',
+    '--databases',credential["dbName"],
+  ]
+  command = " ".join([command[0], *("'"+r"\'".join(arg.split("'"))+"'" for arg in command[1:])])
+  result = ssh_conn.exec_command(command)
+  print(command)
+  _,stdout,_ = result
+  with stdout:
+    with open(local_file, "wb") as download:
+      chunk_size = 4096  # Adjust the chunk size as needed
+      while True:
+        chunk = stdout.read(chunk_size)
+        if not chunk:
+          break  # Break the loop when there's no more data
+        download.write(chunk)
+  
+  # Use subprocess to run the command and capture the stdout
+  print("Base de Datos: Terminando")
+
+def download_files(credential, local_dir):
   print("Descarga Archivos: Iniciando")
   
+  try_make_dirs(local_dir)
+  
   # TODO Move SSH logic to other module file
-  if credentials["connectionType"] == "ssh":
+  if credential["type"] == "sshFolder":
     backup_file = f"{datetime.now().isoformat().replace(':', '-')}.tar"
 
-    ssh_conn = paramiko.SSHClient() 
-    ssh_conn.set_missing_host_key_policy(paramiko.AutoAddPolicy())
-    ssh_conn.connect(
-      hostname=credentials["host"], 
-      username=credentials["user"],
-      password=credentials["password"],
-    )
-    remote_file = f"{credentials['directory']}/{backup_file}"
+    ssh_conn = ssh_connect(credential)
+    remote_file = f"{credential['directory']}/{backup_file}"
     
-    command = f"tar c $( find {credentials['directory']} -mindepth 1 -maxdepth 1 )"
+    command = f"tar c $( find {credential['directory']} -mindepth 1 -maxdepth 1 ) | gzip -1"
     result = ssh_conn.exec_command(command)
     print(command)
     _,stdout,_ = result
@@ -66,7 +89,7 @@ def download_files(credentials, local_dir):
     ssh_conn.exec_command(f"rm {remote_file}")
     print(f"rm {remote_file}")
     
-    command = f"find {credentials['directory']} -type f -print0 | xargs -0 md5sum"
+    command = f"find {credential['directory']} -type f -print0 | xargs -0 md5sum"
     result = ssh_conn.exec_command(command)
     print(command)
     _,stdout,_ = result
@@ -80,13 +103,24 @@ def download_files(credentials, local_dir):
             break  # Break the loop when there's no more data
           download.write(chunk)
     ssh_conn.close()
-  elif credentials["connectionType"] == "ftp":
-    with FtpClient(credentials["host"], credentials["user"], credentials["password"]) \
+  elif credential["type"] == "ftpFolder":
+    with FtpClient(credential["host"], credential["user"], credential["password"]) \
     as ftp:
-      ftp.cwd(credentials["directory"])
-      ftp.cloneFolder(credentials["directory"], local_dir)
+      ftp.cwd(credential["directory"])
+      ftp.cloneFolder(credential["directory"], local_dir)
 
   print("Descarga Archivos: Terminando")
+
+def ssh_connect(credential):
+  ssh_conn = paramiko.SSHClient() 
+  ssh_conn.set_missing_host_key_policy(paramiko.AutoAddPolicy())
+  ssh_conn.connect(
+    hostname=credential["host"], 
+    username=credential["user"],
+    password=credential.get("password"),
+  )
+  
+  return ssh_conn
 
 def archivar(directorio, archivo_zip):
   print("Archivado: Iniciando")
@@ -112,10 +146,8 @@ def parse_arguments():
   parser = ArgumentParser(
     description="Backup script for remote to local backups, including remote databases"
   )
-  parser.add_argument("--backup_folder", default="./.backups", help="Backup folder path")
-  parser.add_argument("--hosting_creds", default="./websitesData.yaml", 
-    help="Hosting credentials file path"
-  )
+  parser.add_argument("--backup_folder", help="Backup folder path", required=True)
+  parser.add_argument("--hosting_creds", help="Hosting credentials file path", required=True)
   return parser.parse_args()
 
 def delete_local_folder(backup_folder_domain):
@@ -125,50 +157,65 @@ def delete_local_folder(backup_folder_domain):
     pass
 
 def backup_website(credentials, backup_folder, dominio, _, backup_archive):
-  hilo_archivos = Thread(
-    target=lambda: download_files(
-      credentials["credentials"], 
-      backup_folder
-    )
-  )
-  hilo_base_datos = Thread(
-    target=lambda: download_database(
-      credentials["dbCredentials"], 
-      os.path.join(backup_folder, f"{credentials['dbCredentials']['dbName']}.sql")
-    )
-  )
+  threads = []
+  for credential in credentials:
+    match credential["type"]:
+      # TODO Split FTP and SSH code.
+      case "ftpFolder" | "sshFolder":
+        threads.append(Thread(
+          target=lambda: download_files(credential, 
+            f'{backup_folder}{credential["directory"].replace("/", "@")}'
+          )
+        ))
+        #break
+      case "mysqlDbOverSsh":
+        threads.append(Thread(
+          target=lambda: download_database_ssh(
+            credential, 
+            os.path.join(backup_folder, f"{credential['dbName']}.sql")
+          )
+        ))
+        #break
+      case "mysqlDb":
+        threads.append(Thread(
+          target=lambda: download_database(
+            credential, 
+            os.path.join(backup_folder, f"{credential['dbName']}.sql")
+          )
+        ))
+        #break
+      case _:
+        raise RuntimeError("Unknown type of resource")
 
   print(f"DOMINIO {dominio}")
-  while True: # TODO WHY this loop? It iterates once.
-    try:
-      os.makedirs(backup_folder)
-      break
-    except FileExistsError:
-      break
-    except:
-      raise
+  try_make_dirs(backup_folder)
 
-  hilo_archivos.start()
-  if "dbCredentials" in credentials:
-    hilo_base_datos.start()
-
-  hilo_archivos.join()
-  if "dbCredentials" in credentials:
-    hilo_base_datos.join()
+  for thread in threads:
+    thread.start()
+    thread.join()
   
   hilo_archivado = Thread( target=lambda: archivar(backup_folder, backup_archive) )
-  run_in_semaphore(archiving_thread_pool, Thread( target=lambda: hilo_archivado.start() ))
-  #print(f"DOMINIO {dominio} copiado correctamente")
+  #run_in_semaphore(archiving_thread_pool, Thread( target=lambda: hilo_archivado.start() ))
 
+def try_make_dirs(backup_folder):
+  try:
+    os.makedirs(backup_folder)
+  except FileExistsError:
+    return
+  except:
+    raise
+    
 def batch_backup(credentials, backup_folder):
   # TODO For every spec, create separate thread.
-  for dominio, credentials in credentials.items():
+  for dominio, credential in credentials.items():
+    if dominio.startswith("__"):
+      continue
     fecha_hora = datetime.now().strftime("%Y%m%d_%H%M%S")
     backup_folder_domain = os.path.join(backup_folder, f"{fecha_hora} {dominio}")
     backup_archive_path = os.path.join(backup_folder, f"{fecha_hora} {dominio}.7z")
     
     delete_local_folder(backup_folder_domain)
-    backup_website(credentials, backup_folder_domain, dominio, fecha_hora, backup_archive_path)
+    backup_website(credential, backup_folder_domain, dominio, fecha_hora, backup_archive_path)
 
 
 if __name__ == "__main__":
