@@ -1,0 +1,34 @@
+define: &ssh_server_1
+  host: <your_host>
+  password: <your_password>
+  user: <your_user>
+define: &mariadb_server_1
+  dbUser: <your_db_user>
+  dbPass: <your_db_pass>
+define: &ssh_server_2
+  host: <your_host>
+  password: <your_password>
+  user: <your_user>
+define: &mariadb_server_2
+  dbUser: <your_db_user>
+  dbPass: <your_db_pass>
+
+domain1.com:
+  - type: sshFolder
+    directory: domain1.com
+    <<: *ssh_server_1
+domain2.com:
+  - type: mysqlDbOverSsh
+    dbName: <your_database_name>
+    <<: *ssh_server_1
+    <<: *mariadb_servr_1
+  - type: sshFolder
+    directory: domain2.com
+    <<: *ssh_server_1
+domain3.net:
+  - type: ftpFolder
+    directory: domain3.net
+    <<: *ssh_server_2
+  - type: mysql
+    dbName: <your_database_name>
+    <<: *mariadb_servr_2
