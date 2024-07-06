@@ -11,7 +11,7 @@ from FtpClient import FtpClient
 
 
 def download_database(db_credentials, local_file):
-  print("Base de Datos: Iniciando")
+  print("Database: INIT")
   command = [
     'mysqldump',
     '--user',     db_credentials["user"],
@@ -33,17 +33,17 @@ def download_database(db_credentials, local_file):
       os.remove(local_file)
       # Handle any errors, if necessary
       pass
-  print("Base de Datos: Terminando")
+  print("Database: END")
 
 def download_database_ssh(credential, local_file):
-  print("Base de Datos: Iniciando")
+  print("Database: INIT")
   
   ssh_conn = ssh_connect(credential)
   command = [
     'mysqldump',
     '--user',     credential["dbUser"],
     '--host',     credential.get("host", "localhost"),
-    f'--password={credential["password"]}',
+    f'--password={credential["dbPass"]}',
     '--databases',credential["dbName"],
   ]
   command = " ".join([command[0], *("'"+r"\'".join(arg.split("'"))+"'" for arg in command[1:])])
@@ -59,10 +59,10 @@ def download_database_ssh(credential, local_file):
         download.write(chunk)
   
   # Use subprocess to run the command and capture the stdout
-  print("Base de Datos: Terminando")
+  print("Database: END")
 
 def download_files(credential, local_dir):
-  print("Descarga Archivos: Iniciando")
+  print("File Folder: INIT")
   
   try_make_dirs(local_dir)
   
@@ -106,7 +106,7 @@ def download_files(credential, local_dir):
       ftp.cwd(credential["directory"])
       ftp.cloneFolder(credential["directory"], local_dir)
 
-  print("Descarga Archivos: Terminando")
+  print("File Folder: END")
 
 def ssh_connect(credential):
   ssh_conn = paramiko.SSHClient() 
@@ -120,7 +120,7 @@ def ssh_connect(credential):
   return ssh_conn
 
 def archivar(directorio, archivo_zip):
-  print("Archivado: Iniciando")
+  print("Archiving: INIT")
   command = ["7z", "a", "-v3996m", "-mx=9", "-mmt=2", archivo_zip, directorio,]
   # Use subprocess to run the command and capture the stdout
   try:
@@ -132,7 +132,7 @@ def archivar(directorio, archivo_zip):
     delete_local_folder(directorio)
   except subprocess.CalledProcessError as e:
     print("Couldn't create archive.")
-  print("Archivado: Terminando")
+  print("Archiving: END")
 
 def run_in_semaphore(semaphore: Semaphore, thread: Thread):
   with semaphore:
@@ -188,15 +188,15 @@ def backup_website(credentials, backup_folder, dominio, _, backup_archive):
       case _:
         raise RuntimeError("Unknown type of resource")
 
-  print(f"DOMINIO {dominio}")
+  print(f"DOMAIN {dominio}")
   try_make_dirs(backup_folder)
 
   for thread in threads:
     thread.start()
     thread.join()
   
-  hilo_archivado = Thread( target=lambda: archivar(backup_folder, backup_archive) )
-  #run_in_semaphore(archiving_thread_pool, Thread( target=lambda: hilo_archivado.start() ))
+  hilo_Archiving = Thread( target=lambda: archivar(backup_folder, backup_archive) )
+  #run_in_semaphore(archiving_thread_pool, Thread( target=lambda: hilo_Archiving.start() ))
 
 def try_make_dirs(backup_folder):
   try:
@@ -210,6 +210,8 @@ def batch_backup(credentials, backup_folder):
   # TODO For every spec, create separate thread.
   for dominio, credential in credentials.items():
     if dominio.startswith("__"):
+      continue
+    if dominio == "define":
       continue
     fecha_hora = datetime.now().strftime("%Y%m%d_%H%M%S")
     backup_folder_domain = os.path.join(backup_folder, f"{fecha_hora} {dominio}")
